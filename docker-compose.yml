@@ -1,0 +1,114 @@
+# Claude Code + LiteLLM + llama.cpp stack
+# Usage:
+#   cpu:   docker compose --profile cpu up
+#   cuda:  docker compose --profile cuda up
+#   metal: docker compose --profile metal up
+#
+# Copy .env.example → .env and set LLAMA_MODEL_PATH before starting.
+
+name: claude-local
+
+x-llama-common: &llama-common
+  restart: unless-stopped
+  volumes:
+    - ./models:/models:ro
+  environment:
+    LLAMA_ARG_MODEL: /models/${LLAMA_MODEL_PATH:-model.gguf}
+    LLAMA_ARG_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
+    LLAMA_ARG_N_PARALLEL: ${LLAMA_PARALLEL:-4}
+    LLAMA_ARG_BATCH: ${LLAMA_BATCH_SIZE:-512}
+    LLAMA_ARG_UBATCH: ${LLAMA_UBATCH_SIZE:-512}
+    # Quantized KV cache — saves VRAM, negligible quality loss
+    LLAMA_ARG_CACHE_TYPE_K: ${LLAMA_CACHE_TYPE_K:-q8_0}
+    LLAMA_ARG_CACHE_TYPE_V: ${LLAMA_CACHE_TYPE_V:-q8_0}
+    # Reuse prefix KV when ≥N tokens match (prefix caching)
+    LLAMA_ARG_CACHE_REUSE: ${LLAMA_CACHE_REUSE:-256}
+    LLAMA_ARG_HOST: 0.0.0.0
+    LLAMA_ARG_PORT: 8080
+  healthcheck:
+    test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 60s
+
+services:
+  # ── llama.cpp server (CPU) ───────────────────────────────────────────────
+  llama-server-cpu:
+    <<: *llama-common
+    profiles: [cpu]
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: llama-server
+    ports:
+      - "${LLAMA_PORT:-8080}:8080"
+
+  # ── llama.cpp server (NVIDIA CUDA) ───────────────────────────────────────
+  llama-server-cuda:
+    <<: *llama-common
+    profiles: [cuda]
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    container_name: llama-server
+    ports:
+      - "${LLAMA_PORT:-8080}:8080"
+    environment:
+      LLAMA_ARG_MODEL: /models/${LLAMA_MODEL_PATH:-model.gguf}
+      LLAMA_ARG_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
+      LLAMA_ARG_N_PARALLEL: ${LLAMA_PARALLEL:-4}
+      LLAMA_ARG_BATCH: ${LLAMA_BATCH_SIZE:-512}
+      LLAMA_ARG_UBATCH: ${LLAMA_UBATCH_SIZE:-512}
+      LLAMA_ARG_CACHE_TYPE_K: ${LLAMA_CACHE_TYPE_K:-q8_0}
+      LLAMA_ARG_CACHE_TYPE_V: ${LLAMA_CACHE_TYPE_V:-q8_0}
+      LLAMA_ARG_CACHE_REUSE: ${LLAMA_CACHE_REUSE:-256}
+      LLAMA_ARG_N_GPU_LAYERS: ${LLAMA_N_GPU_LAYERS:-99}
+      LLAMA_ARG_HOST: 0.0.0.0
+      LLAMA_ARG_PORT: 8080
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ── llama.cpp server (Apple Metal — host network, no GPU passthrough in Docker) ──
+  # Note: Metal GPU acceleration requires running llama-server natively on macOS.
+  # This profile runs CPU-only in Docker but uses a native wrapper (see README).
+  llama-server-metal:
+    <<: *llama-common
+    profiles: [metal]
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: llama-server
+    ports:
+      - "${LLAMA_PORT:-8080}:8080"
+
+  # ── LiteLLM proxy ────────────────────────────────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    profiles: [cpu, cuda, metal]
+    restart: unless-stopped
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+      - ./litellm/callbacks:/app/callbacks:ro
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-local}
+      DATABASE_URL: ""  # disable Prisma; in-memory only
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--detailed_debug"]
+    depends_on:
+      llama-server-cpu:
+        condition: service_healthy
+        required: false
+      llama-server-cuda:
+        condition: service_healthy
+        required: false
+      llama-server-metal:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

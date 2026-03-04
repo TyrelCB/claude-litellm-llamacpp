@@ -1,0 +1,82 @@
+# LiteLLM Proxy Configuration
+# Translates Anthropic API (Claude Code) → OpenAI-compatible (llama.cpp)
+#
+# Claude Code maps its model names to the entries below.
+# Add or rename model_name entries to match what you pass to `claude --model`.
+
+model_list:
+  # Primary model — maps claude-opus-4-5 (or any claude-*) to the local server.
+  # Override LLAMA_CHAT_MODEL in .env to set the exact model name llama.cpp reports.
+  - model_name: claude-opus-4-5
+    litellm_params:
+      model: openai/${LLAMA_CHAT_MODEL:-local-model}
+      api_base: http://llama-server:8080/v1
+      api_key: "none"
+
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: openai/${LLAMA_CHAT_MODEL:-local-model}
+      api_base: http://llama-server:8080/v1
+      api_key: "none"
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: openai/${LLAMA_CHAT_MODEL:-local-model}
+      api_base: http://llama-server:8080/v1
+      api_key: "none"
+
+  # Catch-all: any model name Claude Code sends that doesn't match above
+  - model_name: "*"
+    litellm_params:
+      model: openai/${LLAMA_CHAT_MODEL:-local-model}
+      api_base: http://llama-server:8080/v1
+      api_key: "none"
+
+litellm_settings:
+  # ── Authentication ──────────────────────────────────────────────────────
+  master_key: ${LITELLM_MASTER_KEY:-sk-litellm-local}
+
+  # ── In-memory cache (memory store) ──────────────────────────────────────
+  # Exact-match deduplication: identical prompts return cached responses.
+  cache: true
+  cache_params:
+    type: local          # no Redis/DB required
+    supported_call_types:
+      - acompletion
+      - completion
+
+  # ── Context truncation (truncate-middle) ────────────────────────────────
+  # When input exceeds truncate_input_tokens, LiteLLM drops middle turns
+  # while preserving the system prompt and most-recent messages.
+  truncate_input_tokens: 30000   # leave headroom below 32 k ctx
+  # Strategy "middle": keeps first (system/early) + last (recent) turns.
+  # Requires litellm >= 1.40; falls back to tail truncation on older builds.
+  modify_params: true   # allow param mutation by callbacks
+
+  # ── Callbacks ────────────────────────────────────────────────────────────
+  # Loaded from /app/callbacks/ (bind-mounted in docker-compose.yml)
+  success_callback:
+    - callbacks.tool_memory.ToolMemoryLogger
+  failure_callback: []
+  callbacks:
+    - callbacks.tool_memory.ToolMemoryLogger
+    - callbacks.summarizer.SummarizerCallback
+
+  # ── Logging ──────────────────────────────────────────────────────────────
+  set_verbose: false
+  json_logs: true
+
+  # ── Reliability ──────────────────────────────────────────────────────────
+  num_retries: 2
+  request_timeout: 600   # llama.cpp can be slow on first token
+
+  # ── Forward cache_prompt hint to llama.cpp ───────────────────────────────
+  # Tells llama.cpp to cache the prompt prefix for reuse across requests.
+  default_team_settings:
+    - team_id: default
+      max_budget: null
+
+general_settings:
+  master_key: ${LITELLM_MASTER_KEY:-sk-litellm-local}
+  # Disable telemetry
+  disable_error_logs: false
