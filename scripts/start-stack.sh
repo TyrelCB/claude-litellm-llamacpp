@@ -32,6 +32,7 @@ LLAMA_CACHE_REUSE="${LLAMA_CACHE_REUSE:-256}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-99}"
 LITELLM_PORT="${LITELLM_PORT:-4000}"
 LLAMA_CHAT_MODEL="${LLAMA_CHAT_MODEL:-local-model}"
+LITELLM_AUTO_PATCH_ANTHROPIC="${LITELLM_AUTO_PATCH_ANTHROPIC:-1}"
 
 MODEL_PATH="$ROOT/models/$LLAMA_MODEL_PATH"
 MMPROJ_PATH=""
@@ -91,6 +92,13 @@ if curl -sf "http://localhost:${LITELLM_PORT}/health" >/dev/null 2>&1; then
   echo "✓ LiteLLM already running on :${LITELLM_PORT}"
 else
   echo "→ Starting LiteLLM on :${LITELLM_PORT}…"
+  if [[ "$LITELLM_AUTO_PATCH_ANTHROPIC" == "1" ]]; then
+    echo "  Applying LiteLLM Anthropic truncate patch…"
+    if ! PYTHONPATH="$ROOT/litellm" python3 "$ROOT/scripts/patch-litellm-anthropic-truncate.py"; then
+      echo "✗ Failed to patch LiteLLM Anthropic handlers." >&2
+      exit 1
+    fi
+  fi
   PYTHONPATH="$ROOT/litellm" \
   LLAMA_CHAT_MODEL="$LLAMA_CHAT_MODEL" \
   SUMMARIZER_THRESHOLD_RATIO="${SUMMARIZER_THRESHOLD_RATIO:-0.75}" \
