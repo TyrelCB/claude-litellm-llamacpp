@@ -48,6 +48,7 @@ litellm_settings:
     - callbacks.tool_memory.ToolMemoryLogger
   failure_callback: []
   callbacks:
+    - callbacks.image_normalizer.ImageNormalizerCallback
     - callbacks.tool_memory.ToolMemoryLogger
     - callbacks.summarizer.SummarizerCallback
 

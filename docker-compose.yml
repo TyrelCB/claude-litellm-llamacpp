@@ -14,6 +14,7 @@ x-llama-common: &llama-common
     - ./models:/models:ro
   environment:
     LLAMA_ARG_MODEL: /models/${LLAMA_MODEL_PATH:-model.gguf}
+    LLAMA_ARG_MMPROJ: ${LLAMA_MMPROJ_PATH:+/models/${LLAMA_MMPROJ_PATH}}
     LLAMA_ARG_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
     LLAMA_ARG_N_PARALLEL: ${LLAMA_PARALLEL:-4}
     LLAMA_ARG_BATCH: ${LLAMA_BATCH_SIZE:-512}
@@ -52,6 +53,7 @@ services:
       - "${LLAMA_PORT:-8080}:8080"
     environment:
       LLAMA_ARG_MODEL: /models/${LLAMA_MODEL_PATH:-model.gguf}
+      LLAMA_ARG_MMPROJ: ${LLAMA_MMPROJ_PATH:+/models/${LLAMA_MMPROJ_PATH}}
       LLAMA_ARG_CTX_SIZE: ${LLAMA_CTX_SIZE:-32768}
       LLAMA_ARG_N_PARALLEL: ${LLAMA_PARALLEL:-4}
       LLAMA_ARG_BATCH: ${LLAMA_BATCH_SIZE:-512}

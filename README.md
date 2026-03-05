@@ -63,6 +63,18 @@ Other good choices:
 | `bartowski/Meta-Llama-3.1-8B-Instruct-GGUF` | ~5 GB Q5 | General, fast |
 | `bartowski/Mistral-7B-Instruct-v0.3-GGUF` | ~5 GB Q5 | Fast, solid tool-call |
 
+If you want image input, use a vision-capable model and set its projector file
+in `.env`:
+
+```bash
+# Text+image models require BOTH files:
+LLAMA_MODEL_PATH=<vision-model>.gguf
+LLAMA_MMPROJ_PATH=<matching-mmproj>.gguf
+```
+
+The same `LLAMA_MMPROJ_PATH` variable is used by both `start-stack.sh` and
+`docker compose` profiles.
+
 ### 3. Start the stack
 
 ```bash
@@ -210,6 +222,11 @@ Check logs: `tail -f /tmp/litellm.log` and `tail -f /tmp/llama-server.log`
 llama.cpp serves whichever model is loaded regardless of the model name in the
 request, so this usually means llama-server isn't running. Check:
 `curl http://localhost:${LLAMA_PORT}/v1/models`
+
+**"image input is not supported ... provide the mmproj"**
+Your model is running without a projector or is text-only.
+Set `LLAMA_MMPROJ_PATH` to the matching mmproj GGUF, then restart:
+`./scripts/start-stack.sh`
 
 **Out of memory / context overflow**
 Reduce `LLAMA_CTX_SIZE` or `LLAMA_PARALLEL`, or use a smaller model/quant.
