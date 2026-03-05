@@ -37,7 +37,7 @@ services:
   llama-server-cpu:
     <<: *llama-common
     profiles: [cpu]
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server
     container_name: llama-server
     ports:
       - "${LLAMA_PORT:-8080}:8080"
@@ -46,7 +46,7 @@ services:
   llama-server-cuda:
     <<: *llama-common
     profiles: [cuda]
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: llama-server
     ports:
       - "${LLAMA_PORT:-8080}:8080"
@@ -76,7 +76,7 @@ services:
   llama-server-metal:
     <<: *llama-common
     profiles: [metal]
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server
     container_name: llama-server
     ports:
       - "${LLAMA_PORT:-8080}:8080"
@@ -85,7 +85,7 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm
-    profiles: [cpu, cuda, metal]
+    profiles: [cpu, cuda, metal, native]
     restart: unless-stopped
     ports:
       - "${LITELLM_PORT:-4000}:4000"
@@ -94,7 +94,12 @@ services:
       - ./litellm/callbacks:/app/callbacks:ro
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-local}
-      DATABASE_URL: ""  # disable Prisma; in-memory only
+      DATABASE_URL: "sqlite:///./litellm.db"  # local sqlite; no external DB needed
+      LLAMA_CHAT_MODEL: ${LLAMA_CHAT_MODEL:-local-model}
+      SUMMARIZER_THRESHOLD_RATIO: ${SUMMARIZER_THRESHOLD_RATIO:-0.75}
+      SUMMARIZER_KEEP_RECENT: ${SUMMARIZER_KEEP_RECENT:-6}
+      DISABLE_SCHEMA_UPDATE: "True"
+      STORE_MODEL_IN_DB: "False"
     command: ["--config", "/app/config.yaml", "--port", "4000", "--detailed_debug"]
     depends_on:
       llama-server-cpu:

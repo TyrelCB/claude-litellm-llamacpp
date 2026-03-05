@@ -14,9 +14,9 @@ LiteLLM proxy  (:4000)
   ├─ Summarization    (compresses old turns before sending)
   ├─ In-memory cache  (deduplicates identical requests)
   └─ Tool-call memory (re-injects past tool results)
-    │  http://llama-server:8080
+    │  http://localhost:8082
     ▼
-llama.cpp server (:8080)
+llama.cpp server (:8082)
   ├─ KV cache  (quantized q8_0, saves VRAM)
   ├─ Prefix caching (--cache-reuse)
   └─ Batching  (--parallel, --batch-size)
@@ -26,9 +26,11 @@ llama.cpp server (:8080)
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) + [Compose](https://docs.docker.com/compose/install/) v2
+- [Docker](https://docs.docker.com/get-docker/) + [Compose](https://docs.docker.com/compose/install/) v2 (for LiteLLM)
 - [Claude Code CLI](https://docs.anthropic.com/claude-code) (`npm i -g @anthropic-ai/claude-code` or `pip install claude-code`)
+- [LiteLLM](https://github.com/BerriAI/litellm) Python package: `pip install 'litellm[proxy]'`
 - A GGUF model file (see [Downloading a model](#downloading-a-model))
+- A built [llama.cpp](https://github.com/ggml-org/llama.cpp) binary (see [Building llama.cpp](#building-llamacpp))
 
 ---
 
@@ -38,7 +40,7 @@ llama.cpp server (:8080)
 
 ```bash
 cp .env.example .env
-# Edit .env — at minimum set LLAMA_MODEL_PATH to your model filename
+# Edit .env — set LLAMA_MODEL_PATH, LLAMA_BIN, and LLAMA_PORT at minimum
 ```
 
 ### 2. Download a model
@@ -56,56 +58,30 @@ Other good choices:
 | Model | Size | Strengths |
 |-------|------|-----------|
 | `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | ~5 GB Q5 | Code, instruction, tool use |
+| `bartowski/Qwen_Qwen3.5-35B-A3B-GGUF` | ~21 GB Q4 | Large MoE, strong reasoning |
 | `bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF` | ~9 GB Q5 | Code quality, context |
 | `bartowski/Meta-Llama-3.1-8B-Instruct-GGUF` | ~5 GB Q5 | General, fast |
 | `bartowski/Mistral-7B-Instruct-v0.3-GGUF` | ~5 GB Q5 | Fast, solid tool-call |
 
 ### 3. Start the stack
 
-**CPU:**
 ```bash
-docker compose --profile cpu up -d
+./scripts/start-stack.sh
 ```
 
-**NVIDIA GPU (CUDA):**
-```bash
-# Requires nvidia-container-toolkit
-docker compose --profile cuda up -d
-```
+This starts llama-server (natively, with GPU) and LiteLLM (as a local Python process).
+Logs go to `/tmp/llama-server.log` and `/tmp/litellm.log`.
 
-**Apple Silicon (Metal):**
-> Docker on macOS cannot access the GPU. For Metal acceleration, run
-> llama-server natively (see [Metal native](#metal-native)) and start
-> only LiteLLM via Docker:
-```bash
-docker compose --profile metal up -d litellm
-```
-
-### 4. Find the model name (one-time)
-
-After llama-server starts, check the reported model name:
+### 4. Launch Claude Code
 
 ```bash
-curl -s http://localhost:8080/v1/models | python3 -m json.tool
-# Look for "id" field, e.g. "Qwen2.5-Coder-7B-Instruct-Q5_K_M"
+./scripts/start-claude.sh
+# or with an explicit model name (any name works — all route to the local model):
+./scripts/start-claude.sh --model qwen
 ```
 
-Set it in `.env`:
-```
-LLAMA_CHAT_MODEL=Qwen2.5-Coder-7B-Instruct-Q5_K_M
-```
-
-Then restart LiteLLM: `docker compose --profile cpu restart litellm`
-
-### 5. Launch Claude Code
-
-```bash
-./scripts/start-claude.sh --model claude-opus-4-5
-# or
-export ANTHROPIC_BASE_URL=http://localhost:4000
-export ANTHROPIC_API_KEY=sk-litellm-local
-claude --model claude-opus-4-5
-```
+The `--model` flag accepts any string; the LiteLLM catch-all routes everything
+to the local llama-server. Defaults to `--model local` if omitted.
 
 ---
 
@@ -181,7 +157,7 @@ them being explicitly in the context window.
 
 ```
 .
-├── docker-compose.yml          # Services: llama-server + litellm
+├── docker-compose.yml          # Optional: Docker profiles for llama-server (cpu/cuda/metal/native)
 ├── .env.example                # All configurable variables
 ├── models/                     # GGUF model files (gitignored)
 ├── litellm/
@@ -192,46 +168,48 @@ them being explicitly in the context window.
 │       └── summarizer.py       # Summarization callback
 └── scripts/
     ├── download-model.sh       # HuggingFace GGUF downloader
+    ├── start-stack.sh          # Starts llama-server + LiteLLM
     └── start-claude.sh         # Sets env vars, launches claude
 ```
 
 ---
 
-## Metal Native
+## Building llama.cpp
 
-Docker on macOS does not expose the GPU. To use Metal acceleration:
+llama-server runs natively (outside Docker) for GPU access.
 
+**Linux — CUDA:**
 ```bash
-# Build llama.cpp with Metal support
-brew install cmake
+git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+cmake -B build -DGGML_CUDA=ON && cmake --build build --config Release -j
+# Binary: build/bin/llama-server
+```
+
+**macOS — Metal:**
+```bash
 git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
 cmake -B build -DGGML_METAL=ON && cmake --build build --config Release -j
-
-# Run the server (adjust flags as needed)
-./build/bin/llama-server \
-  -m ../models/your-model.gguf \
-  -c 32768 -np 4 -b 512 \
-  --cache-type-k q8_0 --cache-type-v q8_0 \
-  --cache-reuse 256 \
-  -ngl 99 \
-  --host 0.0.0.0 --port 8080
 ```
 
-Then start only LiteLLM:
+**CPU only:**
 ```bash
-docker compose --profile metal up -d litellm
+cmake -B build && cmake --build build --config Release -j
 ```
+
+Set `LLAMA_BIN` in `.env` to the path of the built binary.
 
 ---
 
 ## Troubleshooting
 
-**LiteLLM can't reach llama-server**
-Check the container is healthy: `docker compose ps`
-Inspect logs: `docker compose logs llama-server`
+**Proxy not reachable / health check fails**
+Ensure the stack is started: `./scripts/start-stack.sh`
+Check logs: `tail -f /tmp/litellm.log` and `tail -f /tmp/llama-server.log`
 
 **"model not found" errors**
-Run `curl http://localhost:8080/v1/models` and update `LLAMA_CHAT_MODEL` in `.env`.
+llama.cpp serves whichever model is loaded regardless of the model name in the
+request, so this usually means llama-server isn't running. Check:
+`curl http://localhost:${LLAMA_PORT}/v1/models`
 
 **Out of memory / context overflow**
 Reduce `LLAMA_CTX_SIZE` or `LLAMA_PARALLEL`, or use a smaller model/quant.
@@ -240,5 +218,12 @@ Reduce `LLAMA_CTX_SIZE` or `LLAMA_PARALLEL`, or use a smaller model/quant.
 Normal for large context sizes on CPU. Enable GPU offload with `LLAMA_N_GPU_LAYERS=99`.
 
 **Callbacks not loading**
-Ensure `./litellm/callbacks` is bind-mounted (check docker-compose.yml) and
-that `callbacks/` is importable as a Python package (needs `__init__.py`).
+`start-stack.sh` sets `PYTHONPATH` to `litellm/` automatically. If running
+LiteLLM manually, ensure `PYTHONPATH=<repo>/litellm` is exported so the
+`callbacks` package is importable.
+
+**LiteLLM version compatibility**
+`master_key` auth in LiteLLM ≥ v1.58 requires a database. The config has
+`master_key` commented out so the proxy runs unauthenticated (fine for local
+use). To re-enable auth, set up a database and uncomment `master_key` in
+`litellm/config.yaml`.

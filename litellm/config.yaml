@@ -1,40 +1,29 @@
 # LiteLLM Proxy Configuration
 # Translates Anthropic API (Claude Code) → OpenAI-compatible (llama.cpp)
 #
-# Claude Code maps its model names to the entries below.
-# Add or rename model_name entries to match what you pass to `claude --model`.
+# Use any model name you like with `claude --model <name>`.
+# The catch-all entry below routes everything to the local llama-server.
 
 model_list:
-  # Primary model — maps claude-opus-4-5 (or any claude-*) to the local server.
-  # Override LLAMA_CHAT_MODEL in .env to set the exact model name llama.cpp reports.
-  - model_name: claude-opus-4-5
+  # Friendly local alias — use: claude --model local
+  - model_name: local
     litellm_params:
       model: openai/${LLAMA_CHAT_MODEL:-local-model}
-      api_base: http://llama-server:8080/v1
+      api_base: http://172.17.0.1:8082/v1
       api_key: "none"
 
-  - model_name: claude-sonnet-4-5
-    litellm_params:
-      model: openai/${LLAMA_CHAT_MODEL:-local-model}
-      api_base: http://llama-server:8080/v1
-      api_key: "none"
-
-  - model_name: claude-haiku-4-5
-    litellm_params:
-      model: openai/${LLAMA_CHAT_MODEL:-local-model}
-      api_base: http://llama-server:8080/v1
-      api_key: "none"
-
-  # Catch-all: any model name Claude Code sends that doesn't match above
+  # Catch-all: any other model name Claude Code sends also routes locally
   - model_name: "*"
     litellm_params:
       model: openai/${LLAMA_CHAT_MODEL:-local-model}
-      api_base: http://llama-server:8080/v1
+      api_base: http://172.17.0.1:8082/v1
       api_key: "none"
 
 litellm_settings:
   # ── Authentication ──────────────────────────────────────────────────────
-  master_key: ${LITELLM_MASTER_KEY:-sk-litellm-local}
+  # master_key requires a database in LiteLLM >= v1.58. For local use,
+  # omit it (unauthenticated) or set LITELLM_MASTER_KEY and point to a DB.
+  # master_key: ${LITELLM_MASTER_KEY:-sk-litellm-local}
 
   # ── In-memory cache (memory store) ──────────────────────────────────────
   # Exact-match deduplication: identical prompts return cached responses.
@@ -77,6 +66,6 @@ litellm_settings:
       max_budget: null
 
 general_settings:
-  master_key: ${LITELLM_MASTER_KEY:-sk-litellm-local}
+  # master_key: ${LITELLM_MASTER_KEY:-sk-litellm-local}  # requires DB in LiteLLM >= v1.58
   # Disable telemetry
   disable_error_logs: false
