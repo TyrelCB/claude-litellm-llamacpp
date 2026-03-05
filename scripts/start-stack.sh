@@ -30,7 +30,6 @@ LLAMA_CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 LLAMA_CACHE_REUSE="${LLAMA_CACHE_REUSE:-256}"
 LLAMA_N_GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-99}"
 LITELLM_PORT="${LITELLM_PORT:-4000}"
-LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-litellm-local}"
 LLAMA_CHAT_MODEL="${LLAMA_CHAT_MODEL:-local-model}"
 
 MODEL_PATH="$ROOT/models/$LLAMA_MODEL_PATH"
@@ -66,14 +65,12 @@ else
 fi
 
 # ── LiteLLM proxy ────────────────────────────────────────────────────────────
-if curl -sf "http://localhost:${LITELLM_PORT}/health" \
-     -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" >/dev/null 2>&1; then
+if curl -sf "http://localhost:${LITELLM_PORT}/health" >/dev/null 2>&1; then
   echo "✓ LiteLLM already running on :${LITELLM_PORT}"
 else
   echo "→ Starting LiteLLM on :${LITELLM_PORT}…"
   PYTHONPATH="$ROOT/litellm" \
   LLAMA_CHAT_MODEL="$LLAMA_CHAT_MODEL" \
-  LITELLM_MASTER_KEY="$LITELLM_MASTER_KEY" \
   SUMMARIZER_THRESHOLD_RATIO="${SUMMARIZER_THRESHOLD_RATIO:-0.75}" \
   SUMMARIZER_KEEP_RECENT="${SUMMARIZER_KEEP_RECENT:-6}" \
   nohup ~/.local/bin/litellm \
@@ -84,8 +81,7 @@ else
 
   echo -n "  Waiting for LiteLLM"
   for i in $(seq 1 30); do
-    if curl -sf "http://localhost:${LITELLM_PORT}/health" \
-         -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" >/dev/null 2>&1; then
+    if curl -sf "http://localhost:${LITELLM_PORT}/health" >/dev/null 2>&1; then
       echo " ✓"
       break
     fi

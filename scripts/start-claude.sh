@@ -23,13 +23,12 @@ if [[ -f "$ROOT/.env" ]]; then
 fi
 
 LITELLM_PORT="${LITELLM_PORT:-4000}"
-LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-litellm-local}"
 
 export ANTHROPIC_BASE_URL="http://localhost:${LITELLM_PORT}"
-export ANTHROPIC_API_KEY="$LITELLM_MASTER_KEY"
+export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-local}"
 
 # Verify the proxy is reachable
-if ! curl -sf "${ANTHROPIC_BASE_URL}/health" -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" >/dev/null 2>&1; then
+if ! curl -sf "${ANTHROPIC_BASE_URL}/health" >/dev/null 2>&1; then
   echo "⚠  LiteLLM proxy not reachable at ${ANTHROPIC_BASE_URL}" >&2
   echo "   Start the stack first:" >&2
   echo "   # llama-server (native, GPU):" >&2
