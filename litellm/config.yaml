@@ -11,6 +11,9 @@ model_list:
       model: openai/${LLAMA_CHAT_MODEL:-local-model}
       api_base: http://172.17.0.1:8082/v1
       api_key: "none"
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
 
   # Catch-all: any other model name Claude Code sends also routes locally
   - model_name: "*"
@@ -18,6 +21,9 @@ model_list:
       model: openai/${LLAMA_CHAT_MODEL:-local-model}
       api_base: http://172.17.0.1:8082/v1
       api_key: "none"
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
 
 litellm_settings:
   # ── Authentication ──────────────────────────────────────────────────────
@@ -47,6 +53,8 @@ litellm_settings:
   success_callback:
     - callbacks.tool_memory.ToolMemoryLogger
   failure_callback: []
+  input_callback:
+    - callbacks.image_normalizer.ImageNormalizerCallback
   callbacks:
     - callbacks.image_normalizer.ImageNormalizerCallback
     - callbacks.tool_memory.ToolMemoryLogger

@@ -135,6 +135,42 @@ def _patch_anthropic_adapter_translation() -> None:
     AnthropicExperimentalPassThroughConfig._image_url_patch_applied = True
 
 
+def _patch_openai_trailing_assistant_guard() -> None:
+    """
+    Patch LiteLLM OpenAI transport path to coalesce trailing assistant messages.
+    This handles routes where pre-call hooks are not invoked before forwarding.
+    """
+    try:
+        from litellm.llms.openai.openai import OpenAIChatCompletion
+    except Exception:
+        return
+
+    if getattr(OpenAIChatCompletion, "_tail_assistant_patch_applied", False):
+        return
+
+    def _guard(self, messages):  # type: ignore[no-untyped-def]
+        return _coalesce_trailing_assistant_messages(messages)
+
+    original_completion = OpenAIChatCompletion.completion
+    original_acompletion = OpenAIChatCompletion.acompletion
+
+    def completion_patched(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        msgs = kwargs.get("messages")
+        if isinstance(msgs, list):
+            kwargs["messages"] = _guard(self, msgs)
+        return original_completion(self, *args, **kwargs)
+
+    async def acompletion_patched(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        data = kwargs.get("data")
+        if isinstance(data, dict) and isinstance(data.get("messages"), list):
+            data["messages"] = _guard(self, data["messages"])
+        return await original_acompletion(self, *args, **kwargs)
+
+    OpenAIChatCompletion.completion = completion_patched
+    OpenAIChatCompletion.acompletion = acompletion_patched
+    OpenAIChatCompletion._tail_assistant_patch_applied = True
+
+
 def _normalize_block(block: Any) -> Any:
     """Return a normalized content block when possible, otherwise unchanged."""
     if not isinstance(block, dict):
@@ -209,6 +245,56 @@ def _normalize_block(block: Any) -> Any:
     return block
 
 
+def _coalesce_trailing_assistant_messages(messages: list[Any]) -> list[Any]:
+    """
+    llama.cpp rejects requests ending with 2+ assistant messages.
+    Collapse the trailing assistant run into one assistant message.
+    """
+    if not messages:
+        return messages
+
+    # Find trailing run of assistant messages.
+    i = len(messages) - 1
+    while i >= 0:
+        m = messages[i]
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            break
+        i -= 1
+
+    run_start = i + 1
+    run_len = len(messages) - run_start
+    if run_len <= 1:
+        return messages
+
+    trailing = messages[run_start:]
+    merged_content_parts: list[Any] = []
+    for msg in trailing:
+        content = msg.get("content")
+        if isinstance(content, list):
+            merged_content_parts.extend(content)
+        elif content is None:
+            continue
+        else:
+            merged_content_parts.append(str(content))
+
+    # Preserve an explicit (possibly empty) assistant prefill as the final part.
+    if not merged_content_parts:
+        merged_content: Any = ""
+    elif all(isinstance(x, str) for x in merged_content_parts):
+        merged_content = "\n".join(x for x in merged_content_parts if x is not None)
+    else:
+        normalized_blocks: list[Any] = []
+        for part in merged_content_parts:
+            if isinstance(part, str):
+                normalized_blocks.append({"type": "text", "text": part})
+            else:
+                normalized_blocks.append(part)
+        merged_content = normalized_blocks
+
+    merged_assistant = {"role": "assistant", "content": merged_content}
+    return messages[:run_start] + [merged_assistant]
+
+
 class ImageNormalizerCallback(CustomLogger):
     """LiteLLM pre-call hook that normalizes message image blocks."""
 
@@ -224,9 +310,14 @@ class ImageNormalizerCallback(CustomLogger):
         if call_type not in ("completion", "acompletion"):
             return data
 
-        messages = data.get("messages")
-        if not isinstance(messages, list):
+        original_messages = data.get("messages")
+        if not isinstance(original_messages, list):
             return data
+
+        # Fix invalid trailing assistant runs before any provider call.
+        messages = _coalesce_trailing_assistant_messages(original_messages)
+        if messages is not original_messages:
+            data["messages"] = messages
 
         changed = False
         normalized_messages: list[dict[str, Any]] = []
@@ -258,3 +349,8 @@ class ImageNormalizerCallback(CustomLogger):
             data["messages"] = normalized_messages
 
         return data
+
+
+# Apply startup patches as soon as this module is imported by LiteLLM.
+_patch_anthropic_adapter_translation()
+_patch_openai_trailing_assistant_guard()
