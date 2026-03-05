@@ -68,9 +68,9 @@ async def _summarize(middle: list[dict], api_base: str, model: str) -> str:
     )
     try:
         resp = await litellm.acompletion(
-            model=f"openai/{model}",
+            model=f"anthropic/{model}",
             api_base=api_base,
-            api_key="none",
+            api_key="local",
             messages=[
                 {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
                 {"role": "user", "content": transcript},
@@ -97,9 +97,6 @@ class SummarizerCallback(CustomLogger):
         data: dict,
         call_type: str,
     ) -> dict:
-        if call_type not in ("completion", "acompletion"):
-            return data
-
         messages = data.get("messages", [])
         if _estimate_tokens(messages) <= SUMMARIZE_THRESHOLD:
             return data
@@ -112,12 +109,9 @@ class SummarizerCallback(CustomLogger):
         litellm_params = data.get("litellm_params", {})
         api_base = (
             litellm_params.get("api_base")
-            or os.getenv("LLAMA_API_BASE", "http://llama-server:8080/v1")
+            or os.getenv("LLAMA_API_BASE", "http://llama-server:8080")
         )
-        model = (
-            str(data.get("model", "local-model"))
-            .removeprefix("openai/")
-        )
+        model = str(data.get("model", "local-model")).removeprefix("anthropic/")
 
         summary_text = await _summarize(middle, api_base, model)
         summary_message = {

@@ -9,7 +9,7 @@ Claude Code
     │  ANTHROPIC_BASE_URL=http://localhost:4000
     ▼
 LiteLLM proxy  (:4000)
-  ├─ Anthropic API ↔ OpenAI API translation
+  ├─ Anthropic API passthrough
   ├─ Truncate-middle  (keeps system prompt + recent context)
   ├─ Summarization    (compresses old turns before sending)
   ├─ In-memory cache  (deduplicates identical requests)
@@ -124,12 +124,14 @@ per request. `LLAMA_CTX_SIZE` should be at least `PARALLEL × max_tokens`.
 ### Truncate-Middle (LiteLLM)
 
 When the conversation exceeds `LITELLM_TRUNCATE_INPUT_TOKENS` (default 30 000),
-LiteLLM drops turns from the **middle** of the history — preserving the system
-prompt at the top and the most recent turns at the bottom.
+the custom callback `litellm/callbacks/truncate_middle.py` drops turns from the
+**middle** of the history before forwarding to llama.cpp.
 
 Configure in `.env`:
 ```
 LITELLM_TRUNCATE_INPUT_TOKENS=30000
+TRUNCATE_MIDDLE_KEEP_RECENT=8
+TRUNCATE_MIDDLE_KEEP_HEAD=2
 ```
 
 ### Summarization (custom callback)
@@ -146,15 +148,8 @@ SUMMARIZER_KEEP_RECENT=6          # keep last 6 turns verbatim
 
 ### In-Memory Cache (LiteLLM)
 
-Identical prompts (same messages hash) return the cached response instantly,
-saving inference time and token budget.
-
-Enabled in `litellm/config.yaml`:
-```yaml
-cache: true
-cache_params:
-  type: local
-```
+Cache is currently disabled by default in `litellm/config.yaml` because of an
+upstream LiteLLM runtime bug on Python 3.12 in this environment.
 
 ### Tool-Call Memory (custom callback)
 
@@ -213,6 +208,11 @@ Set `LLAMA_BIN` in `.env` to the path of the built binary.
 ---
 
 ## Troubleshooting
+
+**Anthropic `/v1/messages` still overflows context**
+In this upgrade-track branch (LiteLLM `1.82.0`), callback-only truncation did
+not prevent context overflow on oversized Anthropic requests in testing.
+See `AB_COMPARISON.md` for measured A/B results.
 
 **Proxy not reachable / health check fails**
 Ensure the stack is started: `./scripts/start-stack.sh`

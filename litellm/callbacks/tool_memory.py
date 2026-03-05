@@ -18,6 +18,8 @@ from typing import Any
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
 
+from callbacks.truncate_middle import truncate_data_messages
+
 # Maximum number of tool-call results to retain per session.
 MAX_TOOL_RESULTS_PER_SESSION = 20
 
@@ -73,12 +75,41 @@ def _build_memory_note(session_results: deque) -> str:
     return "\n".join(lines)
 
 
+def _ensure_anthropic_precall_truncation_patch() -> None:
+    """Patch LiteLLM Anthropic pre-call hook to apply middle truncation."""
+    try:
+        from litellm.proxy import proxy_server
+    except Exception:
+        return
+
+    logging_obj = getattr(proxy_server, "proxy_logging_obj", None)
+    if logging_obj is None:
+        return
+    if getattr(logging_obj, "_anthropic_middle_truncate_patched", False):
+        return
+
+    original = logging_obj.pre_call_hook
+
+    async def patched_pre_call_hook(*args: Any, **kwargs: Any):
+        data = kwargs.get("data")
+        if isinstance(data, dict) and data.get("adapter_id") == "anthropic":
+            kwargs["data"] = truncate_data_messages(data)
+        return await original(*args, **kwargs)
+
+    logging_obj.pre_call_hook = patched_pre_call_hook
+    logging_obj._anthropic_middle_truncate_patched = True
+
+
 class ToolMemoryLogger(CustomLogger):
     """
     LiteLLM CustomLogger that:
     - pre-call:  injects prior tool results into the system message
     - post-call: stores new tool results for the session
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        _ensure_anthropic_precall_truncation_patch()
 
     # ── Pre-call hook: inject tool memory ───────────────────────────────────
     async def async_pre_call_hook(
@@ -88,9 +119,6 @@ class ToolMemoryLogger(CustomLogger):
         data: dict,
         call_type: str,
     ) -> dict:
-        if call_type not in ("completion", "acompletion"):
-            return data
-
         sid = _session_id(data)
         with _lock:
             past = _store.get(sid)

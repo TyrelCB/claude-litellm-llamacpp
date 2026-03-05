@@ -307,9 +307,6 @@ class ImageNormalizerCallback(CustomLogger):
     ) -> dict:
         _patch_anthropic_adapter_translation()
 
-        if call_type not in ("completion", "acompletion"):
-            return data
-
         original_messages = data.get("messages")
         if not isinstance(original_messages, list):
             return data
